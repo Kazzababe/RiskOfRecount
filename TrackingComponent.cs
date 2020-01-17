@@ -5,10 +5,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace RiskOfRecount {
     public class TrackingComponent : MonoBehaviour {
         public long dpsStart;
+        public float peakDps;
         public SortedDictionary<long, float> damageEvents = new SortedDictionary<long, float>();
         public SortedDictionary<long, float> healEvents = new SortedDictionary<long, float>();
 
@@ -28,7 +30,7 @@ namespace RiskOfRecount {
                 return damageEvents.Sum((pair) => pair.Value);
             }
         }
-        
+
         public float TotalHealing {
             get {
                 return healEvents.Sum((pair) => pair.Value);
@@ -49,7 +51,11 @@ namespace RiskOfRecount {
             } else {
                 damageEvents.Add(now, damage);
             }
-            if (RoRecount.display == 0 || RoRecount.display == 1) {
+            // Check for peak dps and wait for at least a second before recording 
+            if (DPS > peakDps && now - dpsStart >= 1000) {
+                peakDps = DPS;
+            }
+            if (RoRecount.display <= 2) {
                 UpdateBars();
             }
         }
@@ -61,7 +67,7 @@ namespace RiskOfRecount {
             } else {
                 healEvents.Add(now, amount);
             }
-            if (RoRecount.display == 2) {
+            if (RoRecount.display == 3) {
                 UpdateBars();
             }
         }
@@ -69,6 +75,16 @@ namespace RiskOfRecount {
         public void UpdateBars() {
             foreach ((PlayerCharacterMasterController player, RecountBar bar) in RoRecount.bars) {
                 bar.UpdateValue(player);
+            }
+            List<RecountBar> bars = RoRecount.bars.Values.ToList();
+            bars.Sort((RecountBar bar1, RecountBar bar2) => {
+                return bar1.bar.GetComponent<LayoutElement>().preferredWidth.CompareTo(bar2.GetComponent<LayoutElement>().preferredWidth);
+            });
+            for (int i = 0; i < bars.Count; i++) {
+                if (bars[i].container.transform.GetSiblingIndex() != i + 2) {
+                    // I don't actually know if this affects performance or not
+                    bars[i].container.transform.SetSiblingIndex(i + 2);
+                }
             }
         }
     }

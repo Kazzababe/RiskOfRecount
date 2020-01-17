@@ -2,13 +2,16 @@
 using RoR2;
 using RoR2.UI;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace RiskOfRecount.Ui {
-    public class RecountBar {
+    public class RecountBar : MonoBehaviour {
+        public static float AnimationDuration = 0.2f;
+
         private static List<Color32> colors = new List<Color32>() {
             new Color32(98, 78, 51, 255),
             new Color32(71, 115, 149, 255),
@@ -20,10 +23,16 @@ namespace RiskOfRecount.Ui {
             new Color32(154, 76, 0, 255)
         };
 
-        private GameObject container;
-        private GameObject bar;
-        private GameObject nameText;
-        private GameObject valueText;
+        public GameObject container;
+        public GameObject bar;
+        public GameObject nameText;
+        public GameObject valueText;
+
+        private Coroutine barAnimation;
+
+        public void Start() {
+
+        }
 
         public RecountBar(GameObject parent, String playerName) {
             container = new GameObject("container");
@@ -67,7 +76,8 @@ namespace RiskOfRecount.Ui {
             nameRect.pivot = new Vector2(0, 0.5f);
             HGTextMeshProUGUI nameMesh = nameText.AddComponent<HGTextMeshProUGUI>();
             nameMesh.fontSize = 16;
-            nameMesh.color = LocalUserManager.GetFirstLocalUser().cachedMasterController.GetDisplayName().Equals(playerName) ? Color.red : Color.white;
+            nameMesh.color = LocalUserManager.GetFirstLocalUser().cachedMasterController.GetDisplayName().Equals(playerName) ? Color.yellow : Color.white;
+            nameMesh.outlineWidth = 0.5f;
             nameMesh.text = playerName;
             nameMesh.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
             nameMesh.margin = new Vector4(3, 0, 0, 0);
@@ -82,18 +92,23 @@ namespace RiskOfRecount.Ui {
             HGTextMeshProUGUI valueMesh = valueText.AddComponent<HGTextMeshProUGUI>();
             valueMesh.fontSize = 16;
             valueMesh.color = Color.white;
-            valueMesh.text = "0.00";
+            valueMesh.text = "0.00 (0.0%)";
             valueMesh.alignment = TMPro.TextAlignmentOptions.MidlineRight;
             valueMesh.margin = new Vector4(0, 0, 3, 0);
             valueText.AddComponent<LayoutElement>().ignoreLayout = true;
         }
 
         public void UpdateValue(PlayerCharacterMasterController player) {
+            if (barAnimation != null) {
+                RoRecount.instance.DestroyBarAnimationCoroutine(barAnimation);
+            }
             TrackingComponent trackingComponent = player.GetComponent<TrackingComponent>();
             float total = RoRecount.display == 0 ? RoRecount.GetTotalDamage() : RoRecount.display == 1 ?
-                RoRecount.GetTotalDPS() : RoRecount.GetTotalHealing();
+                RoRecount.GetTotalDPS() : RoRecount.display == 2 ? 
+                RoRecount.GetTotalPeakDPS() : RoRecount.GetTotalHealing();
             float value = RoRecount.display == 0 ? trackingComponent.TotalDamage : RoRecount.display == 1 ?
-                trackingComponent.DPS : trackingComponent.TotalHealing;
+                trackingComponent.DPS : RoRecount.display == 2 ? 
+                trackingComponent.peakDps : trackingComponent.TotalHealing;
 
             String display = Math.Round(value).ToString(CultureInfo.InvariantCulture);
             if (value >= 1000000000) {
@@ -103,9 +118,10 @@ namespace RiskOfRecount.Ui {
             } else if (value >= 1000) {
                 display = value.ToString("0,.#K", CultureInfo.InvariantCulture);
             }
+            LayoutElement layoutElement = bar.GetComponent<LayoutElement>();
+            barAnimation = RoRecount.instance.CreateBarAnimationCoroutine(layoutElement, layoutElement.preferredWidth, value / total * 300);;
 
-            bar.GetComponent<LayoutElement>().preferredWidth = value / total * 300;
-            valueText.GetComponent<HGTextMeshProUGUI>().text = display;
+            valueText.GetComponent<HGTextMeshProUGUI>().text = $"{display} ({value / total * 100.0f:N1}%)";
         }
     }
 }

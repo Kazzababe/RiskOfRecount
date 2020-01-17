@@ -6,6 +6,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -16,18 +17,29 @@ namespace RiskOfRecount {
         public static long dpsTimeout = 10000;
         public static Dictionary<PlayerCharacterMasterController, RecountBar> bars = new Dictionary<PlayerCharacterMasterController, RecountBar>();
         public static int display = 0;
+        public static string directory = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        public static RoRecount instance { get; set; }
 
         private GameObject canvas;
         private GameObject container;
         private GameObject header;
+        private GameObject headerText;
         private Dictionary<int, string> displays = new Dictionary<int, string>() {
             { 0, "Total Damage" },
-            { 1, "Damage Per Second (DPS)" },
-            { 2, "Total Healing" }
+            { 1, "Current Damage Per Second (DPS)" },
+            { 2, "Peak Damage Per Second (DPS)" },
+            { 3, "Total Healing" }
         };
 
-
         private Coroutine dpsCoroutine = null;
+
+        public void Awake() {
+            instance = this;
+        }
+
+        public void onMouseDown() {
+
+        }
 
         public void OnEnable() {
             On.RoR2.HealthComponent.Heal += (orig, self, amount, procChainMask, nonRegen) => {
@@ -119,11 +131,11 @@ namespace RiskOfRecount {
                 return;
             }
             if (Input.GetKeyDown(KeyCode.F2)) {
-                display = display == 2 ? 0 : display + 1;
+                display = display == 3 ? 0 : display + 1;
 
                 if (display == 1) {
                     // Switch to DPS display, start coroutine
-                    StartCoroutine(UpdateDPS());
+                    dpsCoroutine = StartCoroutine(UpdateDPS());
                 } else if (dpsCoroutine != null) {
                     // Switched away from DPS display, stop coroutine
                     StopCoroutine(dpsCoroutine);
@@ -137,6 +149,35 @@ namespace RiskOfRecount {
                     }
                 }
             }
+        }
+
+        // These next three methods are hack af
+        public Coroutine CreateBarAnimationCoroutine(LayoutElement element, float start, float end) {
+            return StartCoroutine(AnimateBar(element, start, end));
+        }
+
+        public void DestroyBarAnimationCoroutine(Coroutine coroutine) {
+            StopCoroutine(coroutine);
+        }
+
+        private IEnumerator AnimateBar(LayoutElement element, float start, float end) {
+            float time = 0;
+            while (time < RecountBar.AnimationDuration) {
+                element.preferredWidth = EaseInOut(start, end, time, RecountBar.AnimationDuration);
+
+                yield return null;
+                time += Time.deltaTime;
+            }
+            element.preferredWidth = end;
+        }
+
+        // Stole this from the internet, ain't gonna lie
+        private float EaseInOut(float initial, float final, float time, float duration) {
+            float change = final - initial;
+            time /= duration / 2;
+            if (time < 1f) return change / 2 * time * time + initial;
+            time--;
+            return -change / 2 * (time * (time - 2) - 1) + initial;
         }
 
         public IEnumerator UpdateDPS() {
@@ -189,12 +230,36 @@ namespace RiskOfRecount {
             headerRect.anchorMin = new Vector2(0, 0);
             headerRect.anchorMax = new Vector2(1, 1);
             headerRect.pivot = new Vector2(0, 0.5f);
-            HGTextMeshProUGUI headerMesh = header.AddComponent<HGTextMeshProUGUI>();
+            HorizontalLayoutGroup headerGroup = header.AddComponent<HorizontalLayoutGroup>();
+            headerGroup.childForceExpandWidth = false;
+            headerGroup.padding = new RectOffset(3, 3, 3, 3);
+
+            headerText = new GameObject("Recount header text");
+            headerText.transform.SetParent(header.transform);
+            HGTextMeshProUGUI headerMesh = headerText.AddComponent<HGTextMeshProUGUI>();
             headerMesh.fontSize = 20;
             headerMesh.color = Color.white;
             headerMesh.text = displays[display];
             headerMesh.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
             headerMesh.margin = new Vector4(3, 0, 0, 0);
+            LayoutElement headerLayout = headerText.AddComponent<LayoutElement>();
+            headerLayout.flexibleWidth = 1.0f;
+
+            GameObject test = new GameObject("test");
+            test.transform.SetParent(header.transform);
+            Button testButton = test.AddComponent<Button>();
+            testButton.onClick.AddListener(() => Debug.Log("This does nothing for now");
+            HGTextMeshProUGUI testText = testButton.gameObject.AddComponent<HGTextMeshProUGUI>();
+            testText.fontSize = 20;
+            testText.color = Color.white;
+            testText.text = "-";
+            testText.alignment = TMPro.TextAlignmentOptions.MidlineRight;
+            testText.margin = new Vector4(0, 0, 3, 0);
+            LayoutElement testLayout = test.AddComponent<LayoutElement>();
+            //testLayout.preferredWidth = 16;
+            testLayout.flexibleWidth = 0;
+            test.AddComponent<ContentSizeFitter>();
+
 
             GameObject info = new GameObject("Recount info");
             info.transform.SetParent(container.transform);
@@ -237,6 +302,15 @@ namespace RiskOfRecount {
             return PlayerCharacterMasterController.instances.Sum((p) => {
                 if (p && p.GetComponent<TrackingComponent>()) {
                     return p.GetComponent<TrackingComponent>().DPS;
+                }
+                return 0;
+            });
+        }
+
+        public static float GetTotalPeakDPS() {
+            return PlayerCharacterMasterController.instances.Sum((p) => {
+                if (p && p.GetComponent<TrackingComponent>()) {
+                    return p.GetComponent<TrackingComponent>().peakDps;
                 }
                 return 0;
             });
