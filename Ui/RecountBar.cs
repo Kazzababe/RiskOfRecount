@@ -1,4 +1,5 @@
 ﻿using LeTai.Asset.TranslucentImage;
+using RiskOfRecount.Tracking;
 using RoR2;
 using RoR2.UI;
 using System;
@@ -10,8 +11,7 @@ using UnityEngine.UI;
 
 namespace RiskOfRecount.Ui {
     public class RecountBar : MonoBehaviour {
-        public static float AnimationDuration = 0.2f;
-
+        public static Dictionary<PlayerCharacterMasterController, RecountBar> BarInstances = new Dictionary<PlayerCharacterMasterController, RecountBar>();
         private static List<Color32> colors = new List<Color32>() {
             new Color32(98, 78, 51, 255),
             new Color32(71, 115, 149, 255),
@@ -24,19 +24,50 @@ namespace RiskOfRecount.Ui {
         };
 
         public GameObject container;
-        public GameObject bar;
-        public GameObject nameText;
-        public GameObject valueText;
+        private GameObject bar;
+        private GameObject nameTextObject;
+        private GameObject valueTextObject;
 
-        private Coroutine barAnimation;
+        private Coroutine animation;
 
-        public void Start() {
-
+        private string nameText;
+        public string NameText {
+            get { return nameText; }
+            set {
+                nameText = value;
+                if (nameTextObject) {
+                    nameTextObject.GetComponent<HGTextMeshProUGUI>().text = nameText;
+                }
+            }
         }
 
-        public RecountBar(GameObject parent, String playerName) {
+        private string valueText = "0 (0.0%)";
+        public string ValueText {
+            get { return valueText; }
+            set {
+                valueText = value;
+                if (valueTextObject) {
+                    valueTextObject.GetComponent<HGTextMeshProUGUI>().text = valueText;
+                }
+            }
+        }
+
+        public float Percentage {
+            get { return bar.GetComponent<LayoutElement>().preferredWidth / 300.0f; }
+        }
+
+        public BaseTrackingStat CurrentTrackingStat {
+            get { return (BaseTrackingStat)container.GetComponent(RoRecount.ui.CurrentTrackingDef.type); }
+        }
+
+        public PlayerCharacterMasterController player;
+        public Dictionary<string, List<BaseTrackingStat>> trackers = new Dictionary<string, List<BaseTrackingStat>>();
+
+        public void Start() {
+            BarInstances.Add(player, this);
+
             container = new GameObject("container");
-            container.transform.SetParent(parent.transform);
+            container.transform.SetParent(gameObject.transform);
 
             RectTransform containerRect = container.AddComponent<RectTransform>();
             containerRect.sizeDelta = new Vector2(300, 22);
@@ -68,47 +99,57 @@ namespace RiskOfRecount.Ui {
             barLayout.preferredWidth = 300;
             barLayout.preferredHeight = 22;
 
-            nameText = new GameObject("name");
-            nameText.transform.SetParent(container.transform);
-            RectTransform nameRect = nameText.AddComponent<RectTransform>();
+            nameTextObject = new GameObject("name");
+            nameTextObject.transform.SetParent(container.transform);
+            RectTransform nameRect = nameTextObject.AddComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0, 0);
             nameRect.anchorMax = new Vector2(1, 1);
             nameRect.pivot = new Vector2(0, 0.5f);
-            HGTextMeshProUGUI nameMesh = nameText.AddComponent<HGTextMeshProUGUI>();
+            HGTextMeshProUGUI nameMesh = nameTextObject.AddComponent<HGTextMeshProUGUI>();
             nameMesh.fontSize = 16;
-            nameMesh.color = LocalUserManager.GetFirstLocalUser().cachedMasterController.GetDisplayName().Equals(playerName) ? Color.yellow : Color.white;
+            nameMesh.color = LocalUserManager.GetFirstLocalUser().cachedMasterController.GetDisplayName().Equals(NameText) ? Color.yellow : Color.white;
             nameMesh.outlineWidth = 0.5f;
-            nameMesh.text = playerName;
+            nameMesh.text = player.GetDisplayName();
             nameMesh.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
             nameMesh.margin = new Vector4(3, 0, 0, 0);
-            nameText.AddComponent<LayoutElement>().ignoreLayout = true;
+            nameTextObject.AddComponent<LayoutElement>().ignoreLayout = true;
 
-            valueText = new GameObject("value");
-            valueText.transform.SetParent(container.transform);
-            RectTransform valueRect = valueText.AddComponent<RectTransform>();
+            valueTextObject = new GameObject("value");
+            valueTextObject.transform.SetParent(container.transform);
+            RectTransform valueRect = valueTextObject.AddComponent<RectTransform>();
             valueRect.anchorMin = new Vector2(0, 0);
             valueRect.anchorMax = new Vector2(1, 1);
             valueRect.pivot = new Vector2(1, 0.5f);
-            HGTextMeshProUGUI valueMesh = valueText.AddComponent<HGTextMeshProUGUI>();
+            HGTextMeshProUGUI valueMesh = valueTextObject.AddComponent<HGTextMeshProUGUI>();
             valueMesh.fontSize = 16;
             valueMesh.color = Color.white;
-            valueMesh.text = "0.00 (0.0%)";
+            valueMesh.text = ValueText;
             valueMesh.alignment = TMPro.TextAlignmentOptions.MidlineRight;
             valueMesh.margin = new Vector4(0, 0, 3, 0);
-            valueText.AddComponent<LayoutElement>().ignoreLayout = true;
+            valueTextObject.AddComponent<LayoutElement>().ignoreLayout = true;
+
+            foreach (TrackingDef def in RoRecount.TrackingDefs) {
+                BaseTrackingStat stat = container.AddComponent(def.type) as BaseTrackingStat;
+                if (!trackers.ContainsKey(stat.type)) {
+                    trackers.Add(stat.type, new List<BaseTrackingStat>());
+                }
+                trackers[stat.type].Add(stat);
+            }
         }
 
-        public void UpdateValue(PlayerCharacterMasterController player) {
-            if (barAnimation != null) {
-                RoRecount.instance.DestroyBarAnimationCoroutine(barAnimation);
+        public void LogEvent(string type, float amount) {
+            if (trackers.ContainsKey(type)) {
+                trackers[type].ForEach((stat) => stat.LogEvent(amount));
             }
-            TrackingComponent trackingComponent = player.GetComponent<TrackingComponent>();
-            float total = RoRecount.display == 0 ? RoRecount.GetTotalDamage() : RoRecount.display == 1 ?
-                RoRecount.GetTotalDPS() : RoRecount.display == 2 ? 
-                RoRecount.GetTotalPeakDPS() : RoRecount.GetTotalHealing();
-            float value = RoRecount.display == 0 ? trackingComponent.TotalDamage : RoRecount.display == 1 ?
-                trackingComponent.DPS : RoRecount.display == 2 ? 
-                trackingComponent.peakDps : trackingComponent.TotalHealing;
+        }
+
+        public void UpdateValue() {
+            if (animation != null) {
+                StopCoroutine(animation);
+            }
+            float total = CurrentTrackingStat.GetTotalValue();
+            float value = CurrentTrackingStat.GetValue();
+            float percent = value / total * 100.0f;
 
             String display = Math.Round(value).ToString(CultureInfo.InvariantCulture);
             if (value >= 1000000000) {
@@ -119,9 +160,26 @@ namespace RiskOfRecount.Ui {
                 display = value.ToString("0,.#K", CultureInfo.InvariantCulture);
             }
             LayoutElement layoutElement = bar.GetComponent<LayoutElement>();
-            barAnimation = RoRecount.instance.CreateBarAnimationCoroutine(layoutElement, layoutElement.preferredWidth, value / total * 300);;
+            animation = StartCoroutine(AnimateBar(layoutElement.preferredWidth, value / total * 300));
+            ValueText = $"{display} ({(float.IsNaN(percent) ? 0 : percent):N1}%)";
+        }
+        private IEnumerator AnimateBar(float start, float end) {
+            LayoutElement layoutElement = bar.GetComponent<LayoutElement>();
+            float time = 0;
+            while (time < 0.5f) {
+                layoutElement.preferredWidth = EaseInOut(start, end, time, 0.5f);
 
-            valueText.GetComponent<HGTextMeshProUGUI>().text = $"{display} ({value / total * 100.0f:N1}%)";
+                yield return null;
+                time += Time.deltaTime;
+            }
+            layoutElement.preferredWidth = end;
+        }
+        private float EaseInOut(float initial, float final, float time, float duration) {
+            float change = final - initial;
+            time /= duration / 2;
+            if (time < 1f) return change / 2 * time * time + initial;
+            time--;
+            return -change / 2 * (time * (time - 2) - 1) + initial;
         }
     }
 }
