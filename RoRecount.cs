@@ -20,19 +20,17 @@ namespace RiskOfRecount {
             TrackingDefs.Add(new TrackingDef("Total Healing", typeof(TrackingStatTotalHealing)));
             TrackingDefs.Add(new TrackingDef("Current DPS", typeof(TrackingStatCurrentDPS), true));
             TrackingDefs.Add(new TrackingDef("Peak DPS", typeof(TrackingStatPeakDPS)));
-
-            On.RoR2.HealthComponent.Heal += (orig, self, amount, procChainMask, nonRegen) => {
-                if (self.body && self.body.master && self.body.master.playerCharacterMasterController) {
-                    PlayerCharacterMasterController player = self.body.master.playerCharacterMasterController;
-                    if (player) {
-                        if (Math.Round(self.health + amount) <= self.body.maxHealth) {
-                            ui.LogEvent(player, "heal", amount);
-                        }
+            
+            HealthComponent.onCharacterHealServer += (healthComponent, amount) => {
+                var body = healthComponent.body;
+                if (body.isPlayerControlled && body.master) {
+                    masterController = body.master.playerCharacterMasterController;
+                    if(masterController) {
+                        ui.LogEvent(player, "heal", amount);
                     }
                 }
+            }
 
-                return orig(self, amount, procChainMask, nonRegen);
-            };
             On.RoR2.GlobalEventManager.OnHitEnemy += (orig, self, info, victim) => {
                 orig(self, info, victim);
 
